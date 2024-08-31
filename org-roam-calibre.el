@@ -36,22 +36,107 @@
 ;; go from a calibre entry to the corresponding org-roam entry (creating it if necessary),
 ;; and vice versa.
 
+;; an "entry" is an org-roam-node with a CALIBREID property set.
+
+;; format of "entry" data structure is a list, with entries:
+;; ( name(string) file-location(string) properties(alist)
+;;
+;; an example is:
+;; ("Unix programming environment, Kernighan and Pike"
+;; "/Dropbox/org-roam/unix_programming_environment_kernighan_and_pike.org"
+;; (("CATEGORY" . "unix_programming_environment_kernighan_and_pike") ("CALIBREID" . "2")
+;; ("DIR" . "~/Dropbox/org-roam/attachments/unix_programming_environment_kernighan_and_pike")
+;; ("ID" . "B39FF72A-F278-4DB2-8B90-1313061B7F92") ("BLOCKED" . "") ("ALLTAGS" .
+;; #(":reading:" 1 8 ...)) ("FILE" .
+;; "/Dropbox/org-roam/unix_programming_environment_kernighan_and_pike.org")
+;; ("PRIORITY" . "B")))
+
+(require 'calibredb)
+
+;;; calibre title related
+(defun orc--calibreid-at-point ()
+  (calibredb-getattr (car (calibredb-find-candidate-at-point)) :id))
+
+(defun orc--calibre-title-from-id (id)
+  "Returns a title, with data type the same as an entry from the returned list of
+  =calibredb-candidate= (=calibredb-query-to-alist= applied to result of
+  sql query). ID should be a string."
+  (if-let* ((valid-id-p (stringp id))
+            (query-result (calibredb-query (format "SELECT * FROM (%s) WHERE id = %s" calibredb-query-string id)))
+            (valid-query-result-p (or (listp query-result)
+                                      (if (stringp query-result)
+                                          (not (string= query-result "")))))
+            (line (if (listp query-result) (car query-result)
+                    (car (split-string (calibredb-chomp query-result) calibredb-sql-newline))))
+            (valid-line-p (or (listp line)
+                              (string-match-p (concat "^[0-9]\\{1,10\\}" calibredb-sql-separator) line))))
+      (list (calibredb-query-to-alist line))))
+
+;; (orc--calibre-title-from-id "26")
+
+;;; org-roam entry related
+
 (cl-defun orc--choose-entry (&optional (prompt-string "Title: "))
   "To be passed to interactive form, to choose an org-roam-calibre entry."  
-  (let* ((orc-entries (org-roam-db-query
-                       [:select [title file properties]
-	                        :from nodes
-	                        :where (like properties '"%CALIBREID%")]))
+  (let* ((orc-entries (orc--all-roam-entries))
          (chosen-title (completing-read "Title: " orc-entries nil 'require-match))
          (entry (assoc chosen-title orc-entries)))
     entry))
 
 (defun org-roam-calibre-find (entry)
+  "Completing-read on set of org-roam-calibre entries (entries with a CALIBREID property)."
   (interactive (list (orc--choose-entry)))
   (let ((file (nth 1 entry)))
     (switch-to-buffer-other-window (find-file-noselect file))))
-  
 
+;; (setq test-entry (car (orc--all-roam-entries)))
 
+(defun orc--calibreid-of-or-entry (entry)
+       "Returns the value of the calibreid property of ENTRY, and nil if no
+      such property."
+       (cdr (assoc-string "CALIBREID" (nth 2 entry))))
 
-;; (message (completing-read "Choose Calibre entry: " (calibredb-candidates)))
+;; expect: "2"
+;; (cdr (orc--calibreid-of-or-entry test-entry))
+
+(defun orc--get-entry-from-calibreid (calibreid-to-find)
+  "Returns entry with calibreid equal to CALIBREID-TO-FIND. If no such entry, returns nil."
+  (let ((all-entries (orc--all-roam-entries)))
+    (seq-find (lambda (entry) (string= (orc--calibreid-of-or-entry entry)
+                                 calibreid-to-find))
+              all-entries)))
+
+;; (orc--get-entry-from-calibreid "2")
+
+(defun orc--file+head-for-entry-from-calibreid (calibreid)
+  "Returns a list (or nil) whose car is the file name of the corresponding org-roam
+entry, and whose cdr is the first line in the entry. Fetches title
+name (from file), book title, author, and published date to make these strings."
+  (let ((calibre-title-data (orc--calibre-title-from-id calibreid)))
+    (cons (concat (file-name-base (calibredb-getattr calibre-title-data :file-path))
+                  " ("
+                  (substring (calibredb-getattr calibre-title-data :book-pubdate) 0 4)
+                  ")")
+          (concat (calibredb-getattr calibre-title-data :book-title) ".\n"
+                  "By "
+                  ;; TODO: get author instead of author-sort
+                  (calibredb-getattr calibre-title-data :author-sort) 
+                  ", published in "
+                  (substring (calibredb-getattr calibre-title-data :book-pubdate) 0 4) "."))))
+
+;; (orc--file+head-for-entry-from-calibreid "26")
+
+(defun org-roam-calibre-capture (calibreid)
+  "Captures a new org-roam-calibre entry corresponding to calibre title with id CALIBREID, if
+  doesn't already exist, with the org-roam-calibre-capture-template being used. If such an
+  entry does already exists, does nothing."
+  )
+
+(defun org-roam-calibre-get-create-roam-entry (calibreid)
+  "Assumes point is on a calibredb title in calibredb-search-mode, and visits
+  org-roam-entry corresponding to the title, creating it via org-capture if necessary."
+  (interactive (list (orc--calibreid-at-point)))
+  (if-let ((entry (orc--entry-from-calibreid calibreid)))
+      (org-roam-calibre-find entry)
+    (org-roam-calibre-capture calibreid)))
+
