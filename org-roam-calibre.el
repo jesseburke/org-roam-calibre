@@ -51,6 +51,7 @@
 ;; "/Dropbox/org-roam/unix_programming_environment_kernighan_and_pike.org")
 ;; ("PRIORITY" . "B")))
 
+(require 'cl-lib)
 (require 'calibredb)
 
 ;;; calibre title related
@@ -72,7 +73,7 @@
                               (string-match-p (concat "^[0-9]\\{1,10\\}" calibredb-sql-separator) line))))
       (list (calibredb-query-to-alist line))))
 
-;; (orc--calibre-title-from-id "26")
+;; (orc--calibre-title-from-id "29")
 
 ;;; org-roam entry related
 
@@ -108,30 +109,73 @@
 
 ;; (orc--get-entry-from-calibreid "2")
 
+
+;;; capture (and related)
+
+(cl-defstruct (org-roam-calibre-node (:include org-roam-node) (:constructor org-roam-calibre-node-create))
+  "Add a template slot to org-roam-node struct."
+  template)
+
+;; (org-roam-calibre-node-create :template "test")
+
 (defun orc--file+head-for-entry-from-calibreid (calibreid)
   "Returns a list (or nil) whose car is the file name of the corresponding org-roam
 entry, and whose cdr is the first line in the entry. Fetches title
 name (from file), book title, author, and published date to make these strings."
-  (let ((calibre-title-data (orc--calibre-title-from-id calibreid)))
-    (cons (concat (file-name-base (calibredb-getattr calibre-title-data :file-path))
-                  " ("
-                  (substring (calibredb-getattr calibre-title-data :book-pubdate) 0 4)
-                  ")")
-          (concat (calibredb-getattr calibre-title-data :book-title) ".\n"
+  (let* ((calibre-title-data (orc--calibre-title-from-id calibreid))
+         (entry-file (concat (file-name-base (calibredb-getattr calibre-title-data :file-path))
+                              " ("
+                              (substring (calibredb-getattr calibre-title-data :book-pubdate) 0 4)
+                              ").org"))
+         (proposed-entry-title (concat (calibredb-getattr calibre-title-data :book-title)
+                                       " - "
+                                       (calibredb-getattr calibre-title-data :author-sort)
+                                       " ("
+                                       (substring (calibredb-getattr calibre-title-data
+                                                          :book-pubdate) 0 4)
+                                       ")"))
+         (entry-title (read-string "Entry title: " proposed-entry-title)))
+    (cons entry-file
+          (concat "#+title: "
+                  entry-title
+                  "\n\n"
+                  (calibredb-getattr calibre-title-data :book-title) ".\n"
                   "By "
                   ;; TODO: get author instead of author-sort
                   (calibredb-getattr calibre-title-data :author-sort) 
                   ", published in "
                   (substring (calibredb-getattr calibre-title-data :book-pubdate) 0 4) "."))))
 
-;; (orc--file+head-for-entry-from-calibreid "26")
+;; (orc--file+head-for-entry-from-calibreid "29")
 
-(defun org-roam-calibre-capture (calibreid)
+(defun orc--make-template (file-str head-str)
+  `("d" "default" plain
+    "%?"
+    :if-new (file+head ,file-str ,head-str); ,(concat org-roam-directory "/" file-str) ,head-str)
+    :unnarrowed t))
+
+;; (orc--make-template (car (orc--file+head-for-entry-from-calibreid "26")) (cdr (orc--file+head-for-entry-from-calibreid "26")))
+
+(defun org-roam-calibre-capture (calibreid &optional goto)
   "Captures a new org-roam-calibre entry corresponding to calibre title with id CALIBREID, if
   doesn't already exist, with the org-roam-calibre-capture-template being used. If such an
-  entry does already exists, does nothing."
-  )
+  entry does already exists, does nothing."  
+  (if-let ((title-data (orc--file+head-for-entry-from-calibreid calibreid)))
+      (let* ((template (orc--make-template (car title-data) (cdr title-data)))
+             (node (org-roam-calibre-node-create :title (car title-data) :template
+                                                 template)))
+        (defun orc--add-calibreid-prop ()
+          (save-excursion
+            (goto-char (point-min))
+            (org-set-property "CALIBREID" calibreid)
+            (org-roam-tag-add '("calibre")))
+          (remove-hook 'org-roam-capture-new-node-hook #'orc--add-calibreid-prop))
+        (add-hook 'org-roam-capture-new-node-hook #'orc--add-calibreid-prop)
+        (org-roam-capture- :node node
+                           :templates (list (org-roam-calibre-node-template node))))))
 
+;; (org-roam-calibre-capture "26")
+  
 (defun org-roam-calibre-get-create-roam-entry (calibreid)
   "Assumes point is on a calibredb title in calibredb-search-mode, and visits
   org-roam-entry corresponding to the title, creating it via org-capture if necessary."
