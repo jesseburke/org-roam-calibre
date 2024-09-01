@@ -202,3 +202,12 @@ name (from file), book title, author, and published date to make these strings."
       (org-roam-calibre-find entry)
     (org-roam-calibre-capture calibreid)))
 
+(defun org-roam-calibre-view-description (calibreid)
+      (interactive
+       (list (orc--calibreid-at-point)))
+      (calibredb-show-entry (orc--calibre-title-from-id calibreid)))
+
+(defun org-roam-calibre-find-file (calibreid)
+  (interactive
+   (list (orc--calibreid-at-point)))
+  (calibredb-find-file (orc--calibre-title-from-id calibreid)))
