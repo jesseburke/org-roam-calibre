@@ -55,8 +55,19 @@
 (require 'calibredb)
 
 ;;; calibre title related
+
+(defun orc--calibreid-of-entry-at-point ()
+  (if-let ((return-val (cdr (assoc-string "CALIBREID" (org-roam-node-properties (org-roam-node-at-point))))))
+          return-val))
+
 (defun orc--calibreid-at-point ()
-  (calibredb-getattr (car (calibredb-find-candidate-at-point)) :id))
+  "Function to be passed to interactive. Works if in an org-roam-buffer,
+  where entry has a CALIBREID property, or if in calibredb-search-mode
+  buffer, then get id from result of calibredb-find-candidate-at-point."
+  (if (eq major-mode 'calibredb-search-mode)
+      (calibredb-getattr (car (calibredb-find-candidate-at-point)) :id))
+  (if (eq major-mode 'org-mode)
+      (orc--calibreid-of-entry-at-point)))
 
 (defun orc--calibre-title-from-id (id)
   "Returns a title, with data type the same as an entry from the returned list of
@@ -77,9 +88,17 @@
 
 ;;; org-roam entry related
 
+(defun orc--all-entries ()
+  (org-roam-db-query
+   [:select [title file properties]
+	    :from nodes
+	    :where (like properties '"%CALIBREID%")]))
+
+;; (orc--all-entries)
+
 (cl-defun orc--choose-entry (&optional (prompt-string "Title: "))
   "To be passed to interactive form, to choose an org-roam-calibre entry."  
-  (let* ((orc-entries (orc--all-roam-entries))
+  (let* ((orc-entries (orc--all-entries))
          (chosen-title (completing-read "Title: " orc-entries nil 'require-match))
          (entry (assoc chosen-title orc-entries)))
     entry))
@@ -90,25 +109,24 @@
   (let ((file (nth 1 entry)))
     (switch-to-buffer-other-window (find-file-noselect file))))
 
-;; (setq test-entry (car (orc--all-roam-entries)))
+;; (setq test-entry (car (orc--all-entries)))
 
-(defun orc--calibreid-of-or-entry (entry)
+(defun orc--calibreid-of-entry (entry)
        "Returns the value of the calibreid property of ENTRY, and nil if no
       such property."
        (cdr (assoc-string "CALIBREID" (nth 2 entry))))
 
 ;; expect: "2"
-;; (cdr (orc--calibreid-of-or-entry test-entry))
+;; (cdr (orc--calibreid-of-entry test-entry))
 
 (defun orc--get-entry-from-calibreid (calibreid-to-find)
   "Returns entry with calibreid equal to CALIBREID-TO-FIND. If no such entry, returns nil."
-  (let ((all-entries (orc--all-roam-entries)))
-    (seq-find (lambda (entry) (string= (orc--calibreid-of-or-entry entry)
+  (let ((all-entries (orc--all-entries)))
+    (seq-find (lambda (entry) (string= (orc--calibreid-of-entry entry)
                                  calibreid-to-find))
               all-entries)))
 
 ;; (orc--get-entry-from-calibreid "2")
-
 
 ;;; capture (and related)
 
