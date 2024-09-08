@@ -86,6 +86,20 @@
 
 ;; (orc--calibre-title-from-id "29")
 
+;;;; get author data from calibre id title
+
+(defun orc--authors-of-title (calibreid)
+  "Returns full author(s) string of title with id CALIBREID."
+  (let ((metadata_str (calibredb-command :command "show_metadata"
+                                         :id calibreid))
+        (regexp "^Author(s)[ \t]*:[ \t]*\\([^[]+\\)"))
+    (message metadata_str)
+    (if (string-match regexp metadata_str)
+        (substring (match-string 1 metadata_str) 0 -1)
+      nil)))
+
+;; (orc--authors-of-title "91")
+
 ;;; org-roam entry related
 
 (defun orc--all-entries ()
