@@ -100,6 +100,63 @@
 
 ;; (orc--authors-of-title "91")
 
+
+;;; calibre library related
+
+(defvar orc--calibre-process-buffer-name "*orc-tem-buffer*" "The name of the
+buffer to associate to calibre processes.")
+
+;;;; add file to calibre library
+
+(defun orc--get-book-ids-from-output (output-str)
+  "Looks for strings of the form \"Added book ids:
+  ...\" in the string OUTPUT-STR (presumed to be output of a calibre command), and scrapes out the book ids, returning them as a list."
+  (let ((regex "Added book ids: \\([0-9, ]+\\)"))
+    (if (string-match regex output-str)
+        (if-let ((match (match-string 1 output-str)))
+            (let ((id-list (split-string match "[, ]+" t)))
+              id-list)))))
+
+;; (setq test-output-str "...
+;; done
+;; DeDRM v10.0.3: Didn't manage to decrypt PDF. Make sure the correct password is entered in the settings.
+;; DeDRM v10.0.3: Finished after 1.6 seconds
+;; Added book ids: 180, 181")
+
+;; (orc--get-book-ids-from-output test-output-str)
+  
+
+  (cl-defun orc--add-files-to-calibre (files &optional done-func)
+    "FILES is a string, or list of strings, each the pathname to a file to add to library. If
+          DONE-FUNC is nonnil, will be called with a list of strings, which are the
+          calibreids for the newly added entries, in same order as FILES."
+    (let* ((buf (get-buffer-create orc--calibre-process-buffer-name))
+           (old-pt (save-current-buffer
+                     (set-buffer buf)         
+                     (point)))
+           (inhibit-message t))
+      (set-process-sentinel
+       (apply 'start-process "org-roam-calibre" buf
+              "calibredb" (append '("add") files))
+       (lambda (p _e)
+         (when (= 0 (process-exit-status p))
+           (save-current-buffer    
+             (set-buffer buf)
+             (if-let ((output-str (buffer-substring-no-properties old-pt (point-max))))
+                 (if-let ((id-list (orc--get-book-ids-from-output output-str)))
+                     (if (and done-func (functionp done-func))
+                         (funcall done-func id-list))))
+             (goto-char (point-max)))
+           (calibredb-candidates)
+           (calibredb-search-clear-filter))))))
+
+
+;; (orc--add-files-to-calibre (list (expand-file-name "~/Desktop/iching.pdf")
+;;                                  (expand-file-name "~/Desktop/signs.pdf"))
+;;                            (lambda (l) (kill-new
+;;                                         (prin1-to-string
+;;                                          l))))
+
 ;;; org-roam entry related
 
 (defun orc--all-entries ()
