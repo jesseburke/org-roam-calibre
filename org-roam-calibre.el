@@ -126,7 +126,7 @@ buffer to associate to calibre processes.")
 ;; (orc--get-book-ids-from-output test-output-str)
   
 
-  (cl-defun orc--add-files-to-calibre (files &optional done-func)
+(cl-defun orc--add-files-to-calibre (files &optional done-func)
     "FILES is a string, or list of strings, each the pathname to a file to add to library. If
           DONE-FUNC is nonnil, will be called with a list of strings, which are the
           calibreids for the newly added entries, in same order as FILES."
@@ -211,19 +211,20 @@ buffer to associate to calibre processes.")
   "Returns a list (or nil) whose car is the file name of the corresponding org-roam
 entry, and whose cdr is the first line in the entry. Fetches title
 name (from file), book title, author, and published date to make these strings."
-  (let* ((calibre-title-data (orc--calibre-title-from-id calibreid))
-         (entry-file (concat (file-name-base (calibredb-getattr calibre-title-data :file-path))
-                              " ("
-                              (substring (calibredb-getattr calibre-title-data :book-pubdate) 0 4)
-                              ").org"))
-         (proposed-entry-title (concat (calibredb-getattr calibre-title-data :book-title)
+  (if-let ((calibre-title-data (orc--calibre-title-from-id calibreid)))
+      (let* ((entry-file (concat (file-name-base (calibredb-getattr calibre-title-data :file-path))
+                                " ("
+                                (substring (calibredb-getattr calibre-title-data :book-pubdate) 0 4)
+                                ").org"))
+            (proposed-entry-title (concat (calibredb-getattr calibre-title-data :book-title)
                                        " - "
-                                       (calibredb-getattr calibre-title-data :author-sort)
+                                       (orc--authors-of-title calibreid)
+                                       ;; (calibredb-getattr calibre-title-data :author-sort)
                                        " ("
                                        (substring (calibredb-getattr calibre-title-data
-                                                          :book-pubdate) 0 4)
+                                                                     :book-pubdate) 0 4)
                                        ")"))
-         (entry-title (read-string "Entry title: " proposed-entry-title)))
+            (entry-title (read-string "Entry title: " proposed-entry-title)))
     (cons entry-file
           (concat "#+title: "
                   entry-title
@@ -233,9 +234,9 @@ name (from file), book title, author, and published date to make these strings."
                   ;; TODO: get author instead of author-sort
                   (calibredb-getattr calibre-title-data :author-sort) 
                   ", published in "
-                  (substring (calibredb-getattr calibre-title-data :book-pubdate) 0 4) "."))))
+                  (substring (calibredb-getattr calibre-title-data :book-pubdate) 0 4) ".")))))
 
-;; (orc--file+head-for-entry-from-calibreid "29")
+;; (orc--file+head-for-entry-from-calibreid "51")
 
 (defun orc--make-template (file-str head-str)
   `("d" "default" plain
