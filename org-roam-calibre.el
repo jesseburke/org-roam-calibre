@@ -122,11 +122,10 @@ buffer to associate to calibre processes.")
 ;; DeDRM v10.0.3: Didn't manage to decrypt PDF. Make sure the correct password is entered in the settings.
 ;; DeDRM v10.0.3: Finished after 1.6 seconds
 ;; Added book ids: 180, 181")
-
 ;; (orc--get-book-ids-from-output test-output-str)
   
 
-(cl-defun orc--add-files-to-calibre (files &optional done-func)
+(cl-defun orc--add-files-to-calibre (files &optional done-func delete-originals)
     "FILES is a string, or list of strings, each the pathname to a file to add to library. If
           DONE-FUNC is nonnil, will be called with a list of strings, which are the
           calibreids for the newly added entries, in same order as FILES."
@@ -147,15 +146,19 @@ buffer to associate to calibre processes.")
                      (if (and done-func (functionp done-func))
                          (funcall done-func id-list))))
              (goto-char (point-max)))
+           (if delete-originals
+               (dolist (file files)
+                 (delete-file file)))
            (calibredb-candidates)
            (calibredb-search-clear-filter))))))
 
 
-;; (orc--add-files-to-calibre (list (expand-file-name "~/Desktop/iching.pdf")
-;;                                  (expand-file-name "~/Desktop/signs.pdf"))
+;; (orc--add-files-to-calibre (list ;; (expand-file-name "~/Desktop/iching.pdf")
+;;                                  (expand-file-name "~/Desktop/euphonics.epub"))
 ;;                            (lambda (l) (kill-new
 ;;                                         (prin1-to-string
-;;                                          l))))
+;;                                          l))) t)
+
 
 ;;; org-roam entry related
 
