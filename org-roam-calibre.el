@@ -93,49 +93,44 @@ org-roam-buffer, where entry has a CALIBREID property, or if in
 ;; (orc--calibre-title-data-from-id "29")
 ;; (orc--calibre-title-data-from-id "51")
 
-;;;; get author data from calibre id title (isn't included in title data, only author-sort
-;;;; is)
+(defun orc--run-calibredb-cmd-to-string (command-list)
+  "Runs a command of calibredb: COMMAND-LIST should be a list of
+    strings, that will be passed as arguments to calibredb cli program. E.g.,..."
+  (shell-command-to-string (combine-and-quote-strings (cons "calibredb" command-list))))
 
+;; (orc--run-calibredb-cmd-to-string '("show_metadata" "169"))
+
+;;;; author isn't included in title data, only author-sort, is why following
 (defun orc--authors-of-title (calibreid)
   "Returns full author(s) string of title with id CALIBREID."
-  (let ((metadata_str (calibredb-command :command "show_metadata"
-                                         :id calibreid))
+  (let ((metadata-str
+         (orc--run-calibredb-cmd-to-string (list "show_metadata" calibreid)))
         (regexp "^Author(s)[ \t]*:[ \t]*\\([^[]+\\)"))
-    (message metadata_str)
-    (if (string-match regexp metadata_str)
-        (substring (match-string 1 metadata_str) 0 -1)
+    (if (string-match regexp metadata-str)
+        (substring (match-string 1 metadata-str) 0 -1)
       nil)))
 
 ;; (orc--authors-of-title "51")
 
-;; following function has equivalent shell command:
-;; calibredb show_metadata "169"
+(defun orc--add-files-to-calibre (files &optional done-func delete-originals)
+  "FILES is a string, or list of strings, each the pathname to a file to add to library. If
+          DONE-FUNC is nonnil, will be called with a list of strings, which are the
+          calibreids for the newly added entries, in same order as FILES."
+  (orc--run-calibredb-cmd-async
+   (append '("add") files)
+   (lambda (output-text)                             
+     (if-let ((id-list (orc--get-book-ids-from-output output-text)))
+         (if (and done-func (functionp done-func))
+             (funcall done-func id-list)
+           (message (prin1-to-string id-list)))
+       (calibredb-candidates)
+       (calibredb-search-clear-filter))
+     (if delete-originals
+         (dolist (file files)
+           (delete-file file))))))
 
-(cl-defun orc--metadata-from-db (calibre-id)    
-  (let* ((proc-buf (get-buffer-create orc--calibre-process-buffer-name))
-         (old-pt (save-current-buffer
-                     (set-buffer proc-buf)
-                     (point)))
-           (inhibit-message t))
-    (set-process-sentinel
-       (start-process "org-roam-calibre" proc-buf
-                      "calibredb" "show_metadata"  calibre-id)
-       (lambda (p e)         
-         (save-current-buffer    
-           (set-buffer proc-buf)
-           (let ((output-str (buffer-substring-no-properties old-pt (point-max))))
-             (cond ((= 1  (process-exit-status p))
-                    (message (concat e output-str)))
-                   ((= 0  (process-exit-status p))
-                    (message output-str)))
-             (goto-char (point-max))))))))
-         
-;; (orc--metadata-from-db "169")
+;; (orc--add-files-to-calibre (list (expand-file-name "~/Desktop/dynkin-markov.pdf")))
 
-
-;;;; add file to calibre library
-
-;; following is called in a callback
 (defun orc--get-book-ids-from-output (output-str)
   "Looks for strings of the form \"Added book ids:
   ...\" in the string OUTPUT-STR (presumed to be output of a calibre command), and scrapes out the book ids, returning them as a list."
@@ -152,39 +147,33 @@ org-roam-buffer, where entry has a CALIBREID property, or if in
 ;; Added book ids: 180, 181")
 ;; (orc--get-book-ids-from-output test-output-str)
 
-(cl-defun orc--add-files-to-calibre (files &optional done-func delete-originals)
-    "FILES is a string, or list of strings, each the pathname to a file to add to library. If
-          DONE-FUNC is nonnil, will be called with a list of strings, which are the
-          calibreids for the newly added entries, in same order as FILES."
-    (let* ((buf (get-buffer-create orc--calibre-process-buffer-name))
-           (old-pt (save-current-buffer
-                     (set-buffer buf)         
-                     (point)))
-           (inhibit-message t))
-      (set-process-sentinel
-       (apply 'start-process "org-roam-calibre" buf
-              "calibredb" (append '("add") files))
-       (lambda (p _e)
-         (when (= 0 (process-exit-status p))
-           (save-current-buffer    
-             (set-buffer buf)
-             (if-let ((output-str (buffer-substring-no-properties old-pt (point-max))))
-                 (if-let ((id-list (orc--get-book-ids-from-output output-str)))
-                     (if (and done-func (functionp done-func))
-                         (funcall done-func id-list))))
-             (goto-char (point-max)))
-           (if delete-originals
-               (dolist (file files)
-                 (delete-file file)))
-           (calibredb-candidates)
-           (calibredb-search-clear-filter))))))
 
+(defun orc--run-calibredb-cmd-async (command-list &optional done-cb-func)
+  "Runs a command of calibredb: COMMAND-LIST should be a list of
+    strings, that will be passed as arguments to calibredb cli program. E.g.,..."
+  (let* ((proc-buf (get-buffer-create orc--calibre-process-buffer-name))
+         (old-pt (save-current-buffer
+                   (set-buffer proc-buf)
+                   (point))))
+    ;; defining cb instead of passing it as a lambda to stop it being printed in
+    ;; messages (for some reason)
+    (defun cb-fun (p e)
+      (save-current-buffer    
+        (set-buffer proc-buf)
+        (let ((output-str (buffer-substring-no-properties old-pt (point-max))))
+          (cond ((= 1  (process-exit-status p))
+                 (message (concat e output-str)))
+                ((= 0  (process-exit-status p))
+                 (if (and done-cb-func (functionp done-cb-func))
+                     (funcall done-cb-func output-str)))))                    
+        (goto-char (point-max))))
+    (set-process-sentinel
+     (apply 'start-process "org-roam-calibre" proc-buf
+            "calibredb" command-list)
+     'cb-fun)))
 
-;; (orc--add-files-to-calibre (list ;; (expand-file-name "~/Desktop/iching.pdf")
-;;                                  (expand-file-name "~/Desktop/euphonics.epub"))
-;;                            (lambda (l) (kill-new
-;;                                         (prin1-to-string
-;;                                          l))) t)
+;; (orc--run-calibredb-cmd-async '("show_metadata" "169") (lambda (text) (message text)))
+
 
 ;;; org-roam entry related
 
