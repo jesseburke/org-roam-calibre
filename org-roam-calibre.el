@@ -54,13 +54,10 @@
 (require 'cl-lib)
 (require 'calibredb)
 
-
 (defvar orc--calibre-process-buffer-name "*orc-calib-proc-buffer*"
   "The name of the buffer to associate to calibre processes.")
 
-
 ;;; functions to get calibreid at point
-
 (defun orc--calibreid-of-entry-at-point ()
   "In org-roam buffer, gets calibreid property value, or nil if doesn't exist."
   (if-let ((return-val (cdr (assoc-string "CALIBREID" (org-roam-node-properties (org-roam-node-at-point))))))
@@ -244,12 +241,6 @@ CALIBREID property)."
 
 ;;; capture (and related)
 
-(cl-defstruct (org-roam-calibre-node (:include org-roam-node) (:constructor org-roam-calibre-node-create))
-  "Add a template slot to org-roam-node struct."
-  template)
-
-;; (org-roam-calibre-node-create :template "test")
-
 (defun orc--file+head-for-entry-from-calibreid (calibreid)
   "Returns a list (or nil) whose car is the file name of the corresponding org-roam
 entry, and whose cdr is the first line in the entry. Fetches title
@@ -257,27 +248,27 @@ name (from file), book title, author, and published date to make these strings."
   (if-let ((calibre-title-data (orc--calibre-title-data-from-id calibreid))
            (author (orc--authors-of-title calibreid)))
       (let* ((entry-file (concat (file-name-base (calibredb-getattr calibre-title-data :file-path))
-                                " ("
-                                (substring (calibredb-getattr calibre-title-data :book-pubdate) 0 4)
-                                ").org"))
-            (proposed-entry-title (concat (calibredb-getattr calibre-title-data :book-title)
-                                       " - by "
-                                       author
-                                       ;; (calibredb-getattr calibre-title-data :author-sort)
-                                       " ("
-                                       (substring (calibredb-getattr calibre-title-data
-                                                                     :book-pubdate) 0 4)
-                                       ")"))
-            (entry-title (read-string "Entry title: " proposed-entry-title)))
-    (cons entry-file
-          (concat "#+title: "
-                  entry-title
-                  "\n\n"
-                  (calibredb-getattr calibre-title-data :book-title) ".\n"
-                  "By "
-                  author
-                  ", published in "
-                  (substring (calibredb-getattr calibre-title-data :book-pubdate) 0 4) ".")))))
+                                 " ("
+                                 (substring (calibredb-getattr calibre-title-data :book-pubdate) 0 4)
+                                 ").org"))
+             (proposed-entry-title (concat (calibredb-getattr calibre-title-data :book-title)
+                                           " - by "
+                                           author
+                                           ;; (calibredb-getattr calibre-title-data :author-sort)
+                                           " ("
+                                           (substring (calibredb-getattr calibre-title-data
+                                                                         :book-pubdate) 0 4)
+                                           ")"))
+             (entry-title (read-string "Entry title: " proposed-entry-title)))
+        (cons entry-file
+              (concat "#+title: "
+                      entry-title
+                      "\n\n"
+                      (calibredb-getattr calibre-title-data :book-title) ".\n"
+                      "By "
+                      author
+                      ", published in "
+                      (substring (calibredb-getattr calibre-title-data :book-pubdate) 0 4) ".")))))
 
 ;; (orc--file+head-for-entry-from-calibreid "51")
 
@@ -315,11 +306,13 @@ name (from file), book title, author, and published date to make these strings."
     (org-roam-calibre-capture calibreid)))
 
 (defun org-roam-calibre-view-description (calibreid)
-      (interactive
-       (list (orc--calibreid-at-point)))
-      (calibredb-show-entry (orc--calibre-title-data-from-id calibreid)))
+  "Views the short description of the tile with id CALIBREID"
+  (interactive
+   (list (orc--calibreid-at-point)))
+  (calibredb-show-entry (orc--calibre-title-data-from-id calibreid)))
 
 (defun org-roam-calibre-find-file (calibreid)
+  "Calls CALIBREDB-FIND-FILE on the title with id CALIBREID."
   (interactive
    (list (orc--calibreid-at-point)))
   (calibredb-find-file (orc--calibre-title-data-from-id calibreid)))
