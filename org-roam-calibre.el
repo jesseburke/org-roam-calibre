@@ -54,22 +54,31 @@
 (require 'cl-lib)
 (require 'calibredb)
 
-;;; calibre title related
+
+(defvar orc--calibre-process-buffer-name "*orc-calib-proc-buffer*"
+  "The name of the buffer to associate to calibre processes.")
+
+
+;;; functions to get calibreid at point
 
 (defun orc--calibreid-of-entry-at-point ()
+  "In org-roam buffer, gets calibreid property value, or nil if doesn't exist."
   (if-let ((return-val (cdr (assoc-string "CALIBREID" (org-roam-node-properties (org-roam-node-at-point))))))
-          return-val))
+      return-val))
 
 (defun orc--calibreid-at-point ()
-  "Function to be passed to interactive. Works if in an org-roam-buffer,
-  where entry has a CALIBREID property, or if in calibredb-search-mode
-  buffer, then get id from result of calibredb-find-candidate-at-point."
+  "Function to be passed as interactive code. Works if in an
+org-roam-buffer, where entry has a CALIBREID property, or if in
+  calibredb-search-mode buffer, then get id from result of
+  calibredb-find-candidate-at-point."
   (if (eq major-mode 'calibredb-search-mode)
-      (calibredb-getattr (car (calibredb-find-candidate-at-point)) :id))
-  (if (eq major-mode 'org-mode)
-      (orc--calibreid-of-entry-at-point)))
+      (calibredb-getattr (car (calibredb-find-candidate-at-point)) :id)
+    (if (eq major-mode 'org-mode)
+        (orc--calibreid-of-entry-at-point))))
 
-(defun orc--calibre-title-from-id (id)
+;;; calibre title related
+
+(defun orc--calibre-title-data-from-id (id)
   "Returns a title, with data type the same as an entry from the returned list of
   =calibredb-candidate= (=calibredb-query-to-alist= applied to result of
   sql query). ID should be a string."
@@ -84,9 +93,11 @@
                               (string-match-p (concat "^[0-9]\\{1,10\\}" calibredb-sql-separator) line))))
       (list (calibredb-query-to-alist line))))
 
-;; (orc--calibre-title-from-id "29")
+;; (orc--calibre-title-data-from-id "29")
+;; (orc--calibre-title-data-from-id "51")
 
-;;;; get author data from calibre id title
+;;;; get author data from calibre id title (isn't included in title data, only author-sort
+;;;; is)
 
 (defun orc--authors-of-title (calibreid)
   "Returns full author(s) string of title with id CALIBREID."
@@ -98,16 +109,36 @@
         (substring (match-string 1 metadata_str) 0 -1)
       nil)))
 
-;; (orc--authors-of-title "91")
+;; (orc--authors-of-title "51")
 
+;; following function has equivalent shell command:
+;; calibredb show_metadata "169"
 
-;;; calibre library related
+(cl-defun orc--metadata-from-db (calibre-id)    
+  (let* ((proc-buf (get-buffer-create orc--calibre-process-buffer-name))
+         (old-pt (save-current-buffer
+                     (set-buffer proc-buf)
+                     (point)))
+           (inhibit-message t))
+    (set-process-sentinel
+       (start-process "org-roam-calibre" proc-buf
+                      "calibredb" "show_metadata"  calibre-id)
+       (lambda (p e)         
+         (save-current-buffer    
+           (set-buffer proc-buf)
+           (let ((output-str (buffer-substring-no-properties old-pt (point-max))))
+             (cond ((= 1  (process-exit-status p))
+                    (message (concat e output-str)))
+                   ((= 0  (process-exit-status p))
+                    (message output-str)))
+             (goto-char (point-max))))))))
+         
+;; (orc--metadata-from-db "169")
 
-(defvar orc--calibre-process-buffer-name "*orc-tem-buffer*" "The name of the
-buffer to associate to calibre processes.")
 
 ;;;; add file to calibre library
 
+;; following is called in a callback
 (defun orc--get-book-ids-from-output (output-str)
   "Looks for strings of the form \"Added book ids:
   ...\" in the string OUTPUT-STR (presumed to be output of a calibre command), and scrapes out the book ids, returning them as a list."
@@ -123,7 +154,6 @@ buffer to associate to calibre processes.")
 ;; DeDRM v10.0.3: Finished after 1.6 seconds
 ;; Added book ids: 180, 181")
 ;; (orc--get-book-ids-from-output test-output-str)
-  
 
 (cl-defun orc--add-files-to-calibre (files &optional done-func delete-originals)
     "FILES is a string, or list of strings, each the pathname to a file to add to library. If
@@ -159,10 +189,11 @@ buffer to associate to calibre processes.")
 ;;                                         (prin1-to-string
 ;;                                          l))) t)
 
-
 ;;; org-roam entry related
 
 (defun orc--all-entries ()
+  "Returns all org-roam entries with a calibreid property. The returned data is: title,
+  file, properties."
   (org-roam-db-query
    [:select [title file properties]
 	    :from nodes
@@ -177,30 +208,39 @@ buffer to associate to calibre processes.")
          (entry (assoc chosen-title orc-entries)))
     entry))
 
-(defun org-roam-calibre-find (entry)
-  "Completing-read on set of org-roam-calibre entries (entries with a CALIBREID property)."
-  (interactive (list (orc--choose-entry)))
-  (let ((file (nth 1 entry)))
-    (switch-to-buffer-other-window (find-file-noselect file))))
-
 ;; (setq test-entry (car (orc--all-entries)))
 
 (defun orc--calibreid-of-entry (entry)
-       "Returns the value of the calibreid property of ENTRY, and nil if no
-      such property."
+       "Returns the value of the calibreid property of ENTRY, and nil if no such
+property."
        (cdr (assoc-string "CALIBREID" (nth 2 entry))))
 
 ;; expect: "2"
 ;; (cdr (orc--calibreid-of-entry test-entry))
 
+(defun orc--add-calibreid-prop (calibreid)
+  "Adds a \"CALIBREID\" property with value CALIBREID, and \"CALIBRE\" tag, to entry at point."
+  (save-excursion
+    (goto-char (point-min))
+    (org-set-property "CALIBREID" calibreid)
+    (org-roam-tag-add '("calibre"))))
+
 (defun orc--get-entry-from-calibreid (calibreid-to-find)
   "Returns entry with calibreid equal to CALIBREID-TO-FIND. If no such entry, returns nil."
   (let ((all-entries (orc--all-entries)))
     (seq-find (lambda (entry) (string= (orc--calibreid-of-entry entry)
-                                 calibreid-to-find))
+                                       calibreid-to-find))
               all-entries)))
 
 ;; (orc--get-entry-from-calibreid "2")
+;; (orc--get-entry-from-calibreid "51")
+
+(defun org-roam-calibre-find (entry)
+  "Completing-read on set of org-roam-calibre entries (entries with a
+CALIBREID property)."
+  (interactive (list (orc--choose-entry)))
+  (let ((file (nth 1 entry)))
+    (switch-to-buffer-other-window (find-file-noselect file))))
 
 ;;; capture (and related)
 
@@ -257,13 +297,10 @@ name (from file), book title, author, and published date to make these strings."
       (let* ((template (orc--make-template (car title-data) (cdr title-data)))
              (node (org-roam-calibre-node-create :title (car title-data) :template
                                                  template)))
-        (defun orc--add-calibreid-prop ()
-          (save-excursion
-            (goto-char (point-min))
-            (org-set-property "CALIBREID" calibreid)
-            (org-roam-tag-add '("calibre")))
-          (remove-hook 'org-roam-capture-new-node-hook #'orc--add-calibreid-prop))
-        (add-hook 'org-roam-capture-new-node-hook #'orc--add-calibreid-prop)
+        (defun orc--add-cb ()
+          (orc--add-calibreid-prop calibreid)
+          (remove-hook 'org-roam-capture-new-node-hook #'orc--add-cb))
+        (add-hook 'org-roam-capture-new-node-hook #'orc--add-cb)
         (org-roam-capture- :node node
                            :templates (list (org-roam-calibre-node-template node))))))
 
@@ -273,16 +310,16 @@ name (from file), book title, author, and published date to make these strings."
   "Assumes point is on a calibredb title in calibredb-search-mode, and visits
   org-roam-entry corresponding to the title, creating it via org-capture if necessary."
   (interactive (list (orc--calibreid-at-point)))
-  (if-let ((entry (orc--entry-from-calibreid calibreid)))
+  (if-let ((entry (orc--get-entry-from-calibreid calibreid)))
       (org-roam-calibre-find entry)
     (org-roam-calibre-capture calibreid)))
 
 (defun org-roam-calibre-view-description (calibreid)
       (interactive
        (list (orc--calibreid-at-point)))
-      (calibredb-show-entry (orc--calibre-title-from-id calibreid)))
+      (calibredb-show-entry (orc--calibre-title-data-from-id calibreid)))
 
 (defun org-roam-calibre-find-file (calibreid)
   (interactive
    (list (orc--calibreid-at-point)))
-  (calibredb-find-file (orc--calibre-title-from-id calibreid)))
+  (calibredb-find-file (orc--calibre-title-data-from-id calibreid)))
