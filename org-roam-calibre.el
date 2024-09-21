@@ -254,14 +254,15 @@ CALIBREID property)."
   "Returns a list (or nil) whose car is the file name of the corresponding org-roam
 entry, and whose cdr is the first line in the entry. Fetches title
 name (from file), book title, author, and published date to make these strings."
-  (if-let ((calibre-title-data (orc--calibre-title-from-id calibreid)))
+  (if-let ((calibre-title-data (orc--calibre-title-data-from-id calibreid))
+           (author (orc--authors-of-title calibreid)))
       (let* ((entry-file (concat (file-name-base (calibredb-getattr calibre-title-data :file-path))
                                 " ("
                                 (substring (calibredb-getattr calibre-title-data :book-pubdate) 0 4)
                                 ").org"))
             (proposed-entry-title (concat (calibredb-getattr calibre-title-data :book-title)
-                                       " - "
-                                       (orc--authors-of-title calibreid)
+                                       " - by "
+                                       author
                                        ;; (calibredb-getattr calibre-title-data :author-sort)
                                        " ("
                                        (substring (calibredb-getattr calibre-title-data
@@ -274,8 +275,7 @@ name (from file), book title, author, and published date to make these strings."
                   "\n\n"
                   (calibredb-getattr calibre-title-data :book-title) ".\n"
                   "By "
-                  ;; TODO: get author instead of author-sort
-                  (calibredb-getattr calibre-title-data :author-sort) 
+                  author
                   ", published in "
                   (substring (calibredb-getattr calibre-title-data :book-pubdate) 0 4) ".")))))
 
