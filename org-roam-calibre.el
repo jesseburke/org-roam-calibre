@@ -112,49 +112,14 @@ org-roam-buffer, where entry has a CALIBREID property, or if in
 
 ;; (orc--authors-of-title "51")
 
-(defun orc--add-files-to-calibre (files &optional done-func delete-originals)
-  "FILES is a string, or list of strings, each the pathname to a file to add to library. If
-          DONE-FUNC is nonnil, will be called with a list of strings, which are the
-          calibreids for the newly added entries, in same order as FILES."
-  (orc--run-calibredb-cmd-async
-   (append '("add") files)
-   (lambda (output-text)                             
-     (if-let ((id-list (orc--get-book-ids-from-output output-text)))
-         (if (and done-func (functionp done-func))
-             (funcall done-func id-list)
-           (message (prin1-to-string id-list)))
-       (calibredb-candidates)
-       (calibredb-search-clear-filter))
-     (if delete-originals
-         (dolist (file files)
-           (delete-file file))))))
-
-;; (orc--add-files-to-calibre (list (expand-file-name "~/Desktop/dynkin-markov.pdf")))
-
-(defun orc--get-book-ids-from-output (output-str)
-  "Looks for strings of the form \"Added book ids:
-  ...\" in the string OUTPUT-STR (presumed to be output of a calibre command), and scrapes out the book ids, returning them as a list."
-  (let ((regex "Added book ids: \\([0-9, ]+\\)"))
-    (if (string-match regex output-str)
-        (if-let ((match (match-string 1 output-str)))
-            (let ((id-list (split-string match "[, ]+" t)))
-              id-list)))))
-
-;; (setq test-output-str "...
-;; done
-;; DeDRM v10.0.3: Didn't manage to decrypt PDF. Make sure the correct password is entered in the settings.
-;; DeDRM v10.0.3: Finished after 1.6 seconds
-;; Added book ids: 180, 181")
-;; (orc--get-book-ids-from-output test-output-str)
-
-
 (defun orc--run-calibredb-cmd-async (command-list &optional done-cb-func)
   "Runs a command of calibredb: COMMAND-LIST should be a list of
     strings, that will be passed as arguments to calibredb cli program. E.g.,..."
   (let* ((proc-buf (get-buffer-create orc--calibre-process-buffer-name))
          (old-pt (save-current-buffer
                    (set-buffer proc-buf)
-                   (point))))
+                   (point)))
+         (inhibit-message t))
     ;; defining cb instead of passing it as a lambda to stop it being printed in
     ;; messages (for some reason)
     (defun cb-fun (p e)
@@ -170,10 +135,51 @@ org-roam-buffer, where entry has a CALIBREID property, or if in
     (set-process-sentinel
      (apply 'start-process "org-roam-calibre" proc-buf
             "calibredb" command-list)
-     'cb-fun)))
+     #'cb-fun)))
 
 ;; (orc--run-calibredb-cmd-async '("show_metadata" "169") (lambda (text) (message text)))
 
+(defun orc--add-files-to-calibre (files &optional done-func delete-originals)
+  "FILES is a list of strings, each the pathname to a file to add to
+library. If DONE-FUNC is nonnil, will be called with a list of strings, which are the
+          calibreids for the newly added entries, in same order as FILES."
+  (orc--run-calibredb-cmd-async
+   (append '("add") files)
+   (lambda (output-text)                             
+     (if-let ((id-list (orc--get-book-ids-from-output output-text)))
+         (progn
+           (if (and done-func (functionp done-func))
+               (funcall done-func id-list)
+             (message (prin1-to-string id-list)))
+           (calibredb-candidates)
+           (calibredb-search-clear-filter))
+       (message "Added titles, with ids: %s" output-text))
+     (if delete-originals
+         (dolist (file files)
+           (message "Deleting %s" file)
+           (delete-file file))))))
+
+;; (orc--add-files-to-calibre (list (expand-file-name "~/Desktop/dynkin-markov.pdf")) nil t)
+;; (orc--add-files-to-calibre (list (expand-file-name "~/Desktop/dynkin-probs.djvu")))
+
+(defun org-roam-calibre-add-title (file)
+  (interactive (list (buffer-file-name)))
+  (unless (not (orc--is-file-a-book-p file))
+    (orc--add-files-to-calibre (list file))))
+
+(defun orc--get-book-ids-from-output (output-str)
+  "Looks for strings of the form \"Added book ids:
+  ...\" in the string OUTPUT-STR (presumed to be output of a calibre command), and scrapes out the book ids, returning them as a list."
+  (let ((regex "Added book ids: \\([0-9, ]+\\)"))
+    (if (string-match regex output-str)
+        (if-let ((match (match-string 1 output-str)))
+            (let ((id-list (split-string match "[, ]+" t)))
+              id-list)))))
+
+;; (setq test-output-str "...
+;; done
+;; Added book ids: 180, 181")
+;; (orc--get-book-ids-from-output test-output-str)
 
 ;;; org-roam entry related
 
