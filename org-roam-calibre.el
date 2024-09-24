@@ -151,23 +151,31 @@ org-roam-buffer, where entry has a CALIBREID property, or if in
   "FILES is a list of strings, each the pathname to a file to add to
 library. If DONE-FUNC is nonnil, will be called with a list of strings, which are the
           calibreids for the newly added entries, in same order as FILES."
-  (orc--run-calibredb-cmd-async
-   (append '("add") files)
-   (lambda (output-text)                             
-     (if-let ((id-list (orc--get-book-ids-from-output output-text)))
-         (progn
-           (if (and done-func (functionp done-func))
-               (funcall done-func id-list)
-             (message "Added titles, with ids: %s" (prin1-to-string id-list)))
-           (calibredb-candidates)
-           (calibredb-search-clear-filter)))
-     (if delete-originals
-         (dolist (file files)
-           (message "Deleting %s" file)
-           (delete-file file))))))
+  (let ((book-files (seq-filter 'orc--file-is-a-book-p files)))
+    (orc--run-calibredb-cmd-async
+     (append '("add") book-files)
+     (lambda (output-text)                             
+       (if-let ((id-list (orc--get-book-ids-from-output output-text)))
+           (progn
+             (if (and done-func (functionp done-func))
+                 (funcall done-func id-list)
+               (message "Added titles, with ids: %s" (prin1-to-string id-list)))
+             (calibredb-candidates)
+             (calibredb-search-clear-filter)))
+       (if delete-originals
+           (dolist (file book-files)           
+             (delete-file file)))))))
 
 ;; (orc--add-files-to-calibre (list (expand-file-name "~/Desktop/dynkin-markov.pdf")) nil t)
 ;; (orc--add-files-to-calibre (list (expand-file-name "~/Desktop/dynkin-probs.djvu")))
+
+(defun org-roam-calibre-add-dir-to-calibre (dir)
+  "Adds all book files in DIR to calibredb library. Can be called interactively from
+dired."
+  (interactive (list (dired-file-name-at-point)))
+  (if (file-directory-p dir)
+        (orc--add-files-to-calibre (seq-map (lambda (file) (expand-file-name (file-name-concat dir file))) (directory-files dir)))))
+  
 
 (defun orc--get-book-ids-from-output (output-str)
   "Looks for strings of the form \"Added book ids:
@@ -186,7 +194,7 @@ library. If DONE-FUNC is nonnil, will be called with a list of strings, which ar
 (defun org-roam-calibre-add-title-at-point (file)
   "If in a viewer, adds the file being viewed to calibre library."
   (interactive (list (buffer-file-name)))
-  (unless (not (orc--is-file-a-book-p file))
+  (unless (not (orc--file-is-a-book-p file))
     (orc--add-files-to-calibre (list file))))
 
 ;;; org-roam entry related
@@ -336,7 +344,7 @@ point, and cdr the id. Works if point is in the org-roam buffer or in
              (list (org-attach-dir nil 'no-fs-check) (org-roam-node-id (org-roam-node-at-point))))))
         (t nil)))
 
-(defun orc--is-file-a-book-p (file)
+(defun orc--file-is-a-book-p (file)
   (member (file-name-extension file) org-roam-calibre-book-suffix-list))
 
 (defun orc--book-files-in-dir (dir)
@@ -347,7 +355,7 @@ is in the list ORG-ROAM-CALIBRE-BOOK-SUFFIX-LIST."
     (while dir-file-list
       (let ((cur-file (car dir-file-list)))
         (setq dir-file-list (cdr dir-file-list))
-        (if (orc--is-file-a-book-p cur-file)
+        (if (orc--file-is-a-book-p cur-file)
             (setq result-list (cons cur-file result-list)))))
     result-list))
 
