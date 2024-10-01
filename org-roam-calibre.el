@@ -63,7 +63,8 @@
 (defvar orc--calibre-process-buffer-name "*orc-calib-proc-buffer*"
   "The name of the buffer to associate to calibre processes.")
 
-(defvar org-roam-calibre-book-suffix-list '("pdf" "epub" "djvu") "List of suffixes that identify book files.")
+(defvar org-roam-calibre-book-suffix-list '("pdf" "epub" "djvu" "acsm") "List of suffixes
+that identify book files.")
 
 ;;; functions to get calibreid at point
 (defun orc--calibreid-of-entry-at-point ()
@@ -209,6 +210,12 @@ dired."
 
 ;; (orc--all-entries)
 
+(defun org-roam-calibre--entry-p (&optional node)
+  "Returns true if org-roam entry at point is a calibre entry, that is, has
+a calibreid property."
+  (unless node (setq node (org-roam-node-at-point)))
+  (assoc-string "CALIBREID" (org-roam-node-properties node)))
+  
 (cl-defun orc--choose-entry (&optional (prompt-string "Title: "))
   "To be passed to interactive form, to choose an org-roam-calibre entry."  
   (let* ((orc-entries (orc--all-entries))
@@ -226,7 +233,7 @@ property."
 ;; expect: "2"
 ;; (cdr (orc--calibreid-of-entry test-entry))
 
-(defun orc--add-calibreid-prop (calibreid)
+(defun orc--add-calibreid-prop-and-tag (calibreid)
   "Adds a \"CALIBREID\" property with value CALIBREID, and \"CALIBRE\" tag, to entry at point."
   (save-excursion
     (goto-char (point-min))
@@ -291,6 +298,10 @@ name (from file), book title, author, and published date to make these strings."
 
 ;; (orc--make-template (car (orc--file+head-for-entry-from-calibreid "26")) (cdr (orc--file+head-for-entry-from-calibreid "26")))
 
+(cl-defstruct (org-roam-calibre-node (:include org-roam-node) (:constructor org-roam-calibre-node-create))
+  "Add a template slot to org-roam-node struct."
+  template)
+
 (defun org-roam-calibre-capture (calibreid &optional goto)
   "Captures a new org-roam-calibre entry corresponding to calibre title with id CALIBREID, if
   doesn't already exist, with the org-roam-calibre-capture-template being used. If such an
@@ -300,7 +311,7 @@ name (from file), book title, author, and published date to make these strings."
              (node (org-roam-calibre-node-create :title (car title-data) :template
                                                  template)))
         (defun orc--add-cb ()
-          (orc--add-calibreid-prop calibreid)
+          (orc--add-calibreid-prop-and-tag calibreid)
           (remove-hook 'org-roam-capture-new-node-hook #'orc--add-cb))
         (add-hook 'org-roam-capture-new-node-hook #'orc--add-cb)
         (org-roam-capture- :node node
@@ -388,13 +399,8 @@ is in the list ORG-ROAM-CALIBRE-BOOK-SUFFIX-LIST."
       (if-let ((calibre-id (car id-list)))
           (save-mark-and-excursion
             (set-buffer (find-file-noselect (org-roam-node-file (org-roam-node-from-id roam-id)))) 
-            (orc--add-calibreid-prop calibre-id)
+            (orc--add-calibreid-prop-and-tag calibre-id)
             (run-hooks 'org-roam-calibre-add-attachment-hook))))
     (orc--add-files-to-calibre (list (expand-file-name book-file)) 'callback-for-add (not not-delete-originals))))
-            
-;; (org-roam-calibre-add-attachment-file (expand-file-name "~/Desktop"))
 
-;; org-roam-node-from-id
-;; (org-roam-node-id (org-roam-node-at-point))
-;; org-roam-node-find
-            
+(provide 'org-roam-calibre)
